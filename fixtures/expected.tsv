@@ -1,0 +1,40 @@
+b01_small	pre	SUCCESS	100	100	100	1
+b01_small	fix	SUCCESS	100	100	100	1
+b01_small	size_t_min	SUCCESS	100	100	100	1
+b02_just_below_2g	pre	SUCCESS	4096	4096	4096	1
+b02_just_below_2g	fix	SUCCESS	4096	4096	4096	1
+b02_just_below_2g	size_t_min	SUCCESS	4096	4096	4096	1
+b03_exactly_2g	pre	DEST_OVERRUN	-2147483648	18446744071562067968	0	1
+b03_exactly_2g	fix	SUCCESS	4096	4096	4096	1
+b03_exactly_2g	size_t_min	SUCCESS	4096	4096	4096	1
+b04_accumulator_pushes_over	pre	DEST_OVERRUN	-2147483648	18446744071562067968	0	1
+b04_accumulator_pushes_over	fix	SUCCESS	4096	4096	4096	1
+b04_accumulator_pushes_over	size_t_min	SUCCESS	4096	4096	4096	1
+b05_4g_plus_5_truncates	pre	STALLED_TRUNCATED	5	5	5	1
+b05_4g_plus_5_truncates	fix	SUCCESS	4096	4096	4096	1
+b05_4g_plus_5_truncates	size_t_min	SUCCESS	4096	4096	4096	1
+b06_6g_negative_again	pre	DEST_OVERRUN	-2147483648	18446744071562067968	0	1
+b06_6g_negative_again	fix	SUCCESS	4096	4096	4096	1
+b06_6g_negative_again	size_t_min	SUCCESS	4096	4096	4096	1
+b07_size_t_32_3g	pre	DEST_OVERRUN	-1073741824	3221225472	0	1
+b07_size_t_32_3g	fix	SUCCESS	4096	4096	4096	1
+b07_size_t_32_3g	size_t_min	SUCCESS	4096	4096	4096	1
+b08_wraps_ring_buffer	pre	SUCCESS	65536	4464	70000	2
+b08_wraps_ring_buffer	fix	SUCCESS	65536	4464	70000	2
+b08_wraps_ring_buffer	size_t_min	SUCCESS	65536	4464	70000	2
+b09_input_short	pre	NEEDS_MORE_INPUT	10	10	10	1
+b09_input_short	fix	NEEDS_MORE_INPUT	10	10	10	1
+b09_input_short	size_t_min	NEEDS_MORE_INPUT	10	10	10	1
+b10_large_window_3g	pre	DEST_OVERRUN	-1294967296	18446744072414584320	0	1
+b10_large_window_3g	fix	SUCCESS	16777216	16777216	16777216	1
+b10_large_window_3g	size_t_min	SUCCESS	16777216	16777216	16777216	1
+b11_pos_near_end	pre	DEST_OVERRUN	-2147483648	18446744071562067968	0	1
+b11_pos_near_end	fix	SUCCESS	1	4095	4096	2
+b11_pos_near_end	size_t_min	SUCCESS	1	4095	4096	2
+#sweep
+pre	64	678	198	222	360	0	0	0
+pre	32	558	198	0	234	0	0	0
+fix	64	1260	198	0	0	0	0	0
+fix	32	792	198	0	0	0	0	0
+size_t_min	64	1260	198	0	0	0	0	0
+size_t_min	32	792	198	0	0	0	0	0
