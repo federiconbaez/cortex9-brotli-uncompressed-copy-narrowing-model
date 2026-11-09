@@ -1,7 +1,7 @@
 #ifndef CX9_SWEEP_H
 #define CX9_SWEEP_H
 #include "brotli_copy.h"
-#define CX9_LABELS 7
+#define CX9_LABELS 8
 typedef struct {
   long count[CX9_LABELS];
   long cases, truncated, int_overflow;

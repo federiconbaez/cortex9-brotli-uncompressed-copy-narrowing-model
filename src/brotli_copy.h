@@ -19,8 +19,13 @@ typedef enum {
   CX9_DEST_OVERRUN,        /* copy length > room left in the allocation */
   CX9_SRC_OVERREAD,        /* copy length > bytes really remaining */
   CX9_FORMAT_ERROR,        /* WriteRingBuffer: meta_block_remaining_len < 0 */
-  CX9_MODEL_LIMIT          /* step bound reached */
+  CX9_MODEL_LIMIT,         /* step bound reached */
+  CX9_BAD_INPUT            /* outside cx9_validate's domain: nothing computed */
 } cx9_label;
+
+#define CX9_MIN_WBITS 10
+#define CX9_MAX_META_LEN ((int64_t)1 << 24)
+#define CX9_MAX_ACC_BYTES 8u
 
 typedef struct {
   uint64_t avail_in;      /* br->avail_in */
@@ -47,6 +52,15 @@ typedef struct {
 int64_t cx9_to_int32(uint64_t v); /* two's-complement narrowing, explicit */
 uint64_t cx9_remaining(cx9_version v, uint64_t avail_in, unsigned acc_bytes,
                        int size_t_bits);
+/* 0 when the input is inside the model's domain, -1 otherwise:
+ * in != NULL; window_bits 10..30; rb_size 1..2^window_bits; pos
+ * 0..rb_size-1; size_t_bits 32 or 64; acc_bytes 0..8; meta_len 1..2^24;
+ * avail_in <= SIZE_MAX of that width and avail_in + acc_bytes <= 2^64-1;
+ * with 32-bit size_t also
+ * avail_in + acc_bytes <= 2^32-1. No shift happens before these checks. */
+int cx9_validate(const cx9_input *in);
+/* Returns label CX9_BAD_INPUT (all other fields 0) when cx9_validate fails
+ * or v is not a known version. */
 cx9_result cx9_run(cx9_version v, const cx9_input *in);
 const char *cx9_label_name(cx9_label l);
 const char *cx9_version_name(cx9_version v);

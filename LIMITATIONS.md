@@ -27,3 +27,9 @@
   agree with each other, which checks the transcription. Neither runs
   Brotli.
 - This is not a new finding.
+- **Input domain:** `cx9_validate` accepts window_bits 10..30, rb_size
+  1..2^window_bits, pos 0..rb_size-1, size_t_bits 32 or 64, acc_bytes
+  0..8, meta_len 1..2^24, avail_in within the size_t width with
+  avail_in + acc_bytes not wrapping (<= 2^32-1 for 32-bit size_t).
+  Anything else returns `BAD_INPUT` before any shift. The CLI parses every
+  field with checked `strtoull`/`strtoll` (no leading space, no '+').

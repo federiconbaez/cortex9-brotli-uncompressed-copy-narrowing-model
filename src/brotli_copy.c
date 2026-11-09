@@ -3,11 +3,14 @@
 const char *cx9_label_name(cx9_label l) {
   static const char *n[] = {"SUCCESS",      "NEEDS_MORE_INPUT",
                             "STALLED_TRUNCATED", "DEST_OVERRUN",
-                            "SRC_OVERREAD", "FORMAT_ERROR", "MODEL_LIMIT"};
+                            "SRC_OVERREAD", "FORMAT_ERROR", "MODEL_LIMIT",
+                            "BAD_INPUT"};
+  if ((int)l < 0 || (int)l >= (int)(sizeof n / sizeof n[0])) return "UNKNOWN";
   return n[l];
 }
 const char *cx9_version_name(cx9_version v) {
   static const char *n[] = {"pre", "fix", "size_t_min"};
+  if ((int)v < 0 || (int)v >= (int)(sizeof n / sizeof n[0])) return "UNKNOWN";
   return n[v];
 }
 
@@ -35,9 +38,33 @@ uint64_t cx9_remaining(cx9_version v, uint64_t avail_in, unsigned acc_bytes,
   return (avail_in + acc_bytes) & mask;
 }
 
+int cx9_validate(const cx9_input *in) {
+  if (!in) return -1;
+  if (in->window_bits < CX9_MIN_WBITS || in->window_bits > CX9_LARGE_MAX_WBITS)
+    return -1;
+  /* the shift below is safe: window_bits is now 10..30 */
+  if (in->rb_size < 1 || in->rb_size > ((int64_t)1 << in->window_bits)) return -1;
+  if (in->pos < 0 || in->pos >= in->rb_size) return -1;
+  if (in->size_t_bits != 32 && in->size_t_bits != 64) return -1;
+  if (in->acc_bytes > CX9_MAX_ACC_BYTES) return -1;
+  if (in->meta_len < 1 || in->meta_len > CX9_MAX_META_LEN) return -1;
+  if (in->avail_in > size_t_mask(in->size_t_bits)) return -1;
+  /* also with 64-bit size_t the sum avail_in + acc_bytes must not wrap */
+  if (in->avail_in > UINT64_MAX - in->acc_bytes) return -1;
+  if (in->size_t_bits == 32 &&
+      in->avail_in + in->acc_bytes > (uint64_t)0xFFFFFFFFu) /* no wrap: <= 2^32+7 */
+    return -1;
+  return 0;
+}
+
 cx9_result cx9_run(cx9_version v, const cx9_input *in) {
   cx9_result r = {0};
-  uint64_t mask = size_t_mask(in->size_t_bits);
+  uint64_t mask;
+  if ((int)v < (int)CX9_PRE || (int)v > (int)CX9_SIZE_T_MIN || cx9_validate(in)) {
+    r.label = CX9_BAD_INPUT;
+    return r;
+  }
+  mask = size_t_mask(in->size_t_bits);
   uint64_t avail = in->avail_in;
   unsigned acc = in->acc_bytes;
   int64_t meta = in->meta_len, pos = in->pos;

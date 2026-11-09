@@ -1,6 +1,8 @@
 /* Fixtures and sweep against separately derived expectations, random
  * invariants, the size_t counterfactual control, PRACTICE levels 1-8. */
 #include "sweep.h"
+#include "cli_parse.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,7 +79,8 @@ static void test_fixtures(const char *dir) {
       CHECK(v >= 0, ver);
       if (v < 0) continue;
       cx9_run_sweep((cx9_version)v, w, &s);
-      for (k = 0; k < CX9_LABELS; ++k) CHECK(s.count[k] == c[k], "sweep count");
+      for (k = 0; k <= CX9_MODEL_LIMIT; ++k) CHECK(s.count[k] == c[k], "sweep count");
+      CHECK(s.count[CX9_BAD_INPUT] == 0, "sweep never BAD_INPUT");
       CHECK(s.int_overflow == 0, "no int overflow in pos + nbytes");
       sweep_rows++;
       continue;
@@ -179,10 +182,105 @@ static void practice(void) {
   CHECK(r.label == CX9_SUCCESS && r.copied == 4096, "practice_level_8");
 }
 
+/* Adversarial inputs: refused with BAD_INPUT before any shift, under
+ * ASan + UBSan with -fno-sanitize-recover. */
+static void expect_bad(cx9_input in, const char *what) {
+  int v;
+  CHECK(cx9_validate(&in) != 0, what);
+  for (v = 0; v < 3; ++v) {
+    cx9_result r = cx9_run((cx9_version)v, &in);
+    CHECK(r.label == CX9_BAD_INPUT && r.steps == 0 && r.copied == 0 &&
+              r.remaining == 0, what);
+  }
+}
+
+static int parse_line(const char *a, const char *b, const char *c,
+                      const char *d, const char *e, const char *g) {
+  char f[6][32], *fp[6];
+  cx9_input in;
+  int k;
+  snprintf(f[0], 32, "%s", a); snprintf(f[1], 32, "%s", b);
+  snprintf(f[2], 32, "%s", c); snprintf(f[3], 32, "%s", d);
+  snprintf(f[4], 32, "%s", e); snprintf(f[5], 32, "%s", g);
+  for (k = 0; k < 6; ++k) fp[k] = f[k];
+  return cx9_parse_fields(fp, &in);
+}
+
+static void test_adversarial(void) {
+  static const int bad_wbits[] = {-1, 0, 9, 31, 63, 64, 1000, INT32_MIN, INT32_MAX};
+  cx9_input ok = mk(100, 0, 100, 16, 0, 64), in;
+  unsigned i;
+  CHECK(cx9_validate(&ok) == 0, "baseline valid");
+  CHECK(cx9_validate(NULL) != 0, "NULL refused");
+  CHECK(cx9_run(CX9_PRE, NULL).label == CX9_BAD_INPUT, "run NULL");
+  for (i = 0; i < sizeof bad_wbits / sizeof bad_wbits[0]; ++i) {
+    in = ok;
+    in.window_bits = bad_wbits[i];  /* rb_size left at 1 << 16 */
+    expect_bad(in, "window_bits out of 10..30");
+  }
+  in = ok; in.pos = -1; expect_bad(in, "pos -1");
+  in = ok; in.pos = INT64_MIN; expect_bad(in, "pos INT64_MIN");
+  in = ok; in.pos = in.rb_size; expect_bad(in, "pos == rb_size");
+  in = ok; in.pos = INT64_MAX; expect_bad(in, "pos INT64_MAX");
+  in = ok; in.rb_size = 0; in.pos = 0; expect_bad(in, "rb_size 0");
+  in = ok; in.rb_size = -5; in.pos = 0; expect_bad(in, "rb_size negative");
+  in = ok; in.rb_size = ((int64_t)1 << 16) + 1; expect_bad(in, "rb_size > 2^wbits");
+  in = ok; in.size_t_bits = 16; expect_bad(in, "size_t_bits 16");
+  in = ok; in.size_t_bits = 0; expect_bad(in, "size_t_bits 0");
+  in = ok; in.size_t_bits = 128; expect_bad(in, "size_t_bits 128");
+  in = ok; in.acc_bytes = 9; expect_bad(in, "acc 9");
+  in = ok; in.acc_bytes = UINT32_MAX; expect_bad(in, "acc UINT_MAX");
+  in = ok; in.meta_len = 0; expect_bad(in, "meta 0");
+  in = ok; in.meta_len = -1; expect_bad(in, "meta -1");
+  in = ok; in.meta_len = CX9_MAX_META_LEN + 1; expect_bad(in, "meta 2^24+1");
+  in = ok; in.size_t_bits = 32; in.avail_in = 0x100000000ull; expect_bad(in, "avail > 32-bit mask");
+  in = ok; in.size_t_bits = 32; in.avail_in = 0xFFFFFFF8u; in.acc_bytes = 8;
+  expect_bad(in, "32-bit avail + acc > 2^32-1");
+  in = ok; in.size_t_bits = 32; in.avail_in = 0xFFFFFFF7u; in.acc_bytes = 8;
+  CHECK(cx9_validate(&in) == 0, "32-bit avail + acc == 2^32-1 accepted");
+  in = mk(UINT64_MAX, 1, 100, 16, 0, 64); expect_bad(in, "64-bit avail + acc wraps");
+  /* borders that must stay accepted */
+  in = mk(UINT64_MAX - 8, 8, CX9_MAX_META_LEN, 30, ((int64_t)1 << 30) - 1, 64);
+  CHECK(cx9_validate(&in) == 0, "largest 64-bit input accepted");
+  CHECK(cx9_run(CX9_PRE, &in).label != CX9_BAD_INPUT, "largest runs");
+  in = mk(0, 0, 1, 10, 0, 32); in.rb_size = 1;
+  CHECK(cx9_validate(&in) == 0, "rb_size 1 accepted");
+  CHECK(cx9_run((cx9_version)3, &ok).label == CX9_BAD_INPUT, "version 3");
+  CHECK(cx9_run((cx9_version)-1, &ok).label == CX9_BAD_INPUT, "version -1");
+  CHECK(strcmp(cx9_label_name((cx9_label)99), "UNKNOWN") == 0, "label 99");
+  CHECK(strcmp(cx9_label_name((cx9_label)-1), "UNKNOWN") == 0, "label -1");
+  CHECK(strcmp(cx9_label_name(CX9_BAD_INPUT), "BAD_INPUT") == 0, "label BAD_INPUT");
+  CHECK(strcmp(cx9_version_name((cx9_version)3), "UNKNOWN") == 0, "version 3 name");
+  CHECK(strcmp(cx9_version_name((cx9_version)-7), "UNKNOWN") == 0, "version -7 name");
+  /* parser */
+  CHECK(parse_line("100", "0", "100", "16", "0", "64") == 0, "parse good");
+  CHECK(parse_line(" 100", "0", "100", "16", "0", "64") != 0, "parse leading space");
+  CHECK(parse_line("+100", "0", "100", "16", "0", "64") != 0, "parse plus");
+  CHECK(parse_line("100x", "0", "100", "16", "0", "64") != 0, "parse junk");
+  CHECK(parse_line("", "0", "100", "16", "0", "64") != 0, "parse empty");
+  CHECK(parse_line("-1", "0", "100", "16", "0", "64") != 0, "parse negative avail");
+  CHECK(parse_line("99999999999999999999", "0", "100", "16", "0", "64") != 0, "parse ERANGE");
+  CHECK(parse_line("100", "9", "100", "16", "0", "64") != 0, "parse acc 9");
+  CHECK(parse_line("100", "0", "0", "16", "0", "64") != 0, "parse meta 0");
+  CHECK(parse_line("100", "0", "100", " 16", "0", "64") != 0, "parse wbits space");
+  CHECK(parse_line("100", "0", "100", "16x", "0", "64") != 0, "parse wbits junk");
+  CHECK(parse_line("100", "0", "100", "64", "0", "64") != 0, "parse wbits 64");
+  CHECK(parse_line("100", "0", "100", "-1", "0", "64") != 0, "parse wbits -1");
+  CHECK(parse_line("100", "0", "100", "16", "65536", "64") != 0, "parse pos == rb");
+  CHECK(parse_line("100", "0", "100", "16", "-1", "64") != 0, "parse pos -1");
+  CHECK(parse_line("100", "0", "100", "16", "0", "16") != 0, "parse width 16");
+  CHECK(parse_line("100", "0", "100", "16", "0", "64 ") != 0, "parse width trailing");
+  CHECK(parse_line("100", "0", "100", "16", "0", "+64") != 0, "parse width plus");
+  CHECK(parse_line("4294967295", "1", "100", "16", "0", "32") != 0, "parse 32-bit sum");
+  CHECK(cx9_parse_version("pre") == CX9_PRE && cx9_parse_version("fix ") < 0 &&
+            cx9_parse_version("") < 0, "parse version");
+}
+
 int main(int argc, char **argv) {
   test_fixtures(argc > 1 ? argv[1] : "fixtures");
   test_invariants();
   practice();
+  test_adversarial();
   printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }
